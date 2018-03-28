@@ -1,0 +1,132 @@
+//--------------------------------------
+//--- 010 Editor v6.0.2 Binary Template
+//
+// File:
+// Author:
+// Revision:
+// Purpose:
+//--------------------------------------
+
+typedef uchar uint8_t;
+typedef uint32 uint32_t;
+typedef uint64 uint64_t;
+
+typedef uchar uuid_t[16] <read=read_uuid_t>;
+string read_uuid_t(uuid_t &id)
+{
+    local string s;
+    SPrintf(s, "%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X",
+        id[0], id[1], id[2], id[3],
+        id[4], id[5],
+        id[6], id[7],
+        id[8], id[9],
+        id[10], id[11], id[12], id[13], id[14], id[15]);
+    return s;
+}
+
+struct dyld_cache_header
+{
+	char		magic[16];				// e.g. "dyld_v0    i386"
+	uint32_t	mappingOffset <format=hex>; // file offset to first dyld_cache_mapping_info
+	uint32_t	mappingCount;			// number of dyld_cache_mapping_info entries
+	uint32_t	imagesOffset <format=hex>; // file offset to first dyld_cache_image_info
+	uint32_t	imagesCount;			// number of dyld_cache_image_info entries
+	uint64_t	dyldBaseAddress <format=hex>; // base address of dyld when cache was built
+	uint64_t	codeSignatureOffset <format=hex>; // file offset of code signature blob
+	uint64_t	codeSignatureSize <format=hex>; // size of code signature blob (zero means to end of file)
+	uint64_t	slideInfoOffset <format=hex>; // file offset of kernel slid info
+	uint64_t	slideInfoSize <format=hex>; // size of kernel slid info
+	uint64_t	localSymbolsOffset <format=hex>; // file offset of where local symbols are stored
+	uint64_t	localSymbolsSize <format=hex>; // size of local symbols information
+	uuid_t		uuid;				// unique value for each shared cache file
+	uint64_t	cacheType <format=hex>; // 1 for development, 0 for optimized
+};
+
+typedef struct {
+    uint32_t VM_PROT_READ : 1;
+    uint32_t VM_PROT_WRITE : 1;
+    uint32_t VM_PROT_EXECUTE : 1;
+    uint32_t VM_PROT_NO_CHANGE : 1;
+    uint32_t VM_PROT_COPY : 1;
+} vm_prot_t <read=read_vm_prot_t>;
+string read_vm_prot_t(vm_prot_t &x)
+{
+    local string s = "";
+    if (x.VM_PROT_READ) Strcat(s, "VM_PROT_READ ");
+    if (x.VM_PROT_WRITE) Strcat(s, "VM_PROT_WRITE ");
+    if (x.VM_PROT_EXECUTE) Strcat(s, "VM_PROT_EXECUTE ");
+    if (x.VM_PROT_NO_CHANGE) Strcat(s, "VM_PROT_NO_CHANGE ");
+    if (x.VM_PROT_COPY) Strcat(s, "VM_PROT_COPY ");
+    return s;
+}
+
+struct dyld_cache_mapping_info {
+	uint64_t	address <format=hex>;
+	uint64_t	size <format=hex>;
+	uint64_t	fileOffset <format=hex>;
+	vm_prot_t	maxProt <format=hex>;
+	vm_prot_t	initProt <format=hex>;
+};
+
+typedef struct
+{
+	uint64_t	address <format=hex, comment=comment_dyld_cache_image_info>;
+	uint64_t	modTime;
+	uint64_t	inode <format=hex>;
+	uint32_t	pathFileOffset <format=hex>;
+	uint32_t	pad;
+} dyld_cache_image_info <read=read_dyld_cache_image_info>;
+string read_dyld_cache_image_info(dyld_cache_image_info& info)
+{
+    return ReadString(info.pathFileOffset);
+}
+string comment_dyld_cache_image_info(uint64_t addr)
+{
+    local int i = 0;
+    local string s = "";
+    for (i=0; i<cache_header.mappingCount; ++i) {
+        if (mapinfos[i].address <= addr && addr < mapinfos[i].address + mapinfos[i].size) {
+            SPrintf(s, "%x", addr - mapinfos[i].address + mapinfos[i].fileOffset);
+            return s;
+        }
+    }
+    return "";
+}
+
+struct dyld_cache_slide_info
+{
+	uint32_t	version;		// currently 1
+	uint32_t	toc_offset <format=hex>;
+	uint32_t	toc_count;
+	uint32_t	entries_offset <format=hex>;
+	uint32_t	entries_count;
+	uint32_t	entries_size <format=hex>; // currently 128 
+	// uint16_t toc[toc_count];
+	// entrybitmap entries[entries_count];
+};
+
+struct dyld_cache_local_symbols_info
+{
+	uint32_t	nlistOffset <format=hex>; // offset into this chunk of nlist entries
+	uint32_t	nlistCount;			// count of nlist entries
+	uint32_t	stringsOffset <format=hex>; // offset into this chunk of string pool
+	uint32_t	stringsSize <format=hex>; // byte count of string pool
+	uint32_t	entriesOffset <format=hex>; // offset into this chunk of array of dyld_cache_local_symbols_entry 
+	uint32_t	entriesCount;		// number of elements in dyld_cache_local_symbols_entry array
+};
+
+struct dyld_cache_local_symbols_entry
+{
+	uint32_t	dylibOffset <format=hex>; // offset in cache file of start of dylib
+	uint32_t	nlistStartIndex;	// start index of locals for this dylib
+	uint32_t	nlistCount;			// number of local symbols for this dylib
+};
+
+dyld_cache_header cache_header;
+
+FSeek(cache_header.mappingOffset);
+dyld_cache_mapping_info mapinfos[cache_header.mappingCount];
+
+FSeek(cache_header.imagesOffset);
+dyld_cache_image_info imageinfos[cache_header.imagesCount];
+
